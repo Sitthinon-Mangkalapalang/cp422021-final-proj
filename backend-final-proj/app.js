@@ -16,8 +16,14 @@ const register = (req, res, next) => {
 
 app.post("/register", register)
 
+const login = (req, res, next) => {
+    
+    console.log(req.body);
+}
 
 
+
+app.post("/login", login)
 
 
 
