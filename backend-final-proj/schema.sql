@@ -4,6 +4,7 @@ CREATE TABLE users (
     lastname VARCHAR(100) NOT NULL,
     email VARCHAR(150) UNIQUE NOT NULL,
     phone VARCHAR(20),
+    password VARCHAR(255) NOT NULL,
     points INT DEFAULT 0 CHECK (points >= 0), -- cannot be negative
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP

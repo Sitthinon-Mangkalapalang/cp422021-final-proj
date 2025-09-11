@@ -1,24 +1,33 @@
 const express = require("express")
 const mysql = require('mysql2/promise');
-const fs = require('fs');
+const bcrypt = require('bcrypt');
+const session = require('express-session');
 require('dotenv').config();
 
 const app = express()
 
-
 app.use(express.urlencoded({extended: true}));
 app.use(express.json());
 
-const caCert = fs.readFileSync(__dirname + '/ca.pem');
+app.use(session({
+    secret: process.env.SESSION_SECRET || 'supersecretkey', 
+    resave: false,
+    saveUninitialized: false,
+    cookie: { secure: true, httpOnly: true }
+}));
 
 const pool = mysql.createPool({
     host: process.env.DB_HOST,
-    port: process.env.DB_PORT,
     user: process.env.DB_USER,
     password: process.env.DB_PASSWORD,
-    database: process.env.DB_DATABASE
+    database: process.env.DB_DATABASE,
+    port: process.env.DB_PORT,
 });
 
+const isValidEmail = (email) => {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return emailRegex.test(email);
+};
 
 const register = async (req, res, next) => {
     const { firstname, lastname, email, phone, password } = req.body;
@@ -27,16 +36,17 @@ const register = async (req, res, next) => {
         return res.status(400).send('Please provide all required fields: firstname, lastname, email, password');
     }
 
+    if (!isValidEmail(email)) {
+        return res.status(400).send('Invalid email format');
+    }
+
     try {
-        // Check if email already exists
         const [existingUsers] = await pool.query('SELECT id FROM users WHERE email = ?', [email]);
         if (existingUsers.length > 0) {
             return res.status(409).send('Email already registered.');
         }
-
-        // Hash password (you should use a proper hashing library like bcrypt)
-        // For demonstration, we'll store it as plain text. DO NOT do this in production.
-        const hashedPassword = password; // In a real app: await bcrypt.hash(password, 10);
+        
+        const hashedPassword = await bcrypt.hash(password, 10);
 
         const [result] = await pool.query(
             'INSERT INTO users (firstname, lastname, email, phone, password) VALUES (?, ?, ?, ?, ?)',
@@ -59,21 +69,31 @@ app.post('/login', async (req, res) => {
         return res.status(400).send('Please provide both email and password');
     }
 
+    if (!isValidEmail(email)) {
+        return res.status(400).send('Invalid email format');
+    }
+
     try {
-        const [users] = await pool.query('SELECT * FROM users WHERE email = ?', [email]);
-        
-        if (users.length === 0) {
-            return res.status(401).send('Invalid email or password');
+        const [rows] = await pool.query('SELECT * FROM users WHERE email = ?', [email]);
+        if (rows.length === 0) {
+            return res.status(400).send('Invalid email or password.');
         }
 
-        const user = users[0];
-        
-        // In a real app, you should use bcrypt.compare() here
-        if (password !== user.password) {
-            return res.status(401).send('Invalid email or password');
+        const user = rows[0];
+        const isPasswordValid = await bcrypt.compare(password, user.password);
+
+        if (!isPasswordValid) {
+            return res.status(400).send('Invalid email or password.');
         }
 
-        res.status(200).send(`Login successful! Welcome ${user.firstname} ${user.lastname}`);
+        req.session.user = {
+            id: user.id,
+            email: user.email,
+            firstname: user.firstname,
+            lastname: user.lastname
+        };
+
+        res.status(200).send('Login successful!');
     } catch (error) {
         console.error('Error during login:', error);
         res.status(500).send('Login failed: ' + error.message);
@@ -91,15 +111,6 @@ app.get('/test-db-connection', async (req, res) => {
         res.status(500).send('Database connection failed: ' + error.message);
     }
 });
-
-
-
-app.post("/register", register)
-
-
-
-
-
 
 app.listen(3000, () => {
     console.log("Listening on port 3000 !")
